@@ -57,6 +57,8 @@ def load_lessons_learned():
             reminders.append("必查：Nuro许可动态、Tesla Robotaxi、Waymo扩张")
         if '坏来源' in content:
             reminders.append("来源：CB Insights等坏来源已过滤")
+        if '日报根本目的' in content:
+            reminders.append("宗旨：每条信息必须回答'对百度有什么意义'或'能成为什么论据'")
 
         for r in reminders:
             print(f"  - {r}")
