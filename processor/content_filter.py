@@ -175,6 +175,15 @@ NEWS_EXCLUDE_KEYWORDS = [
     '获奖', '榜单', '排名', '评选',
 ]
 
+# 绝对排除词（即使是重点公司也过滤）
+NEWS_HARD_EXCLUDE_KEYWORDS = [
+    '未来班', '学员', '培训', '课程', '教育项目',
+    '志愿者', '公益活动', '社会责任',
+    '趣味应用', '搞笑', '娱乐ai',
+    '个人项目展示', '学生作品', '毕业设计',
+    '悄然安装', '后台下载', '未经用户同意',
+]
+
 # ============ 自动驾驶专项检测规则 ============
 
 # 自动驾驶核心关键词
@@ -534,6 +543,12 @@ def validate_news_item(item: Dict) -> Tuple[bool, str, bool]:
     if not is_ai_autonomous_domain(title, summary):
         return False, '非AI/自动驾驶领域', False
 
+    # 3.5 绝对排除词检查（即使是重点公司也过滤）
+    title_lower = title.lower()
+    for kw in NEWS_HARD_EXCLUDE_KEYWORDS:
+        if kw in title_lower:
+            return False, f'绝对排除: {kw}', False
+
     # 4. 排除词汇检查（中小公司日常融资、人事变动等）
     is_ad = is_autonomous_driving_news(title, summary)
     for kw in NEWS_EXCLUDE_KEYWORDS:
@@ -546,10 +561,27 @@ def validate_news_item(item: Dict) -> Tuple[bool, str, bool]:
             if not has_company:
                 return False, f'排除: {kw}', False
 
-    # 5. 重点公司检查
+    # 5. 重点公司检查（增加重要性门槛）
     has_company, matched_company = is_major_company_news(title, summary)
     if has_company:
-        return True, f'重点公司({matched_company})', is_ad
+        # 即使是重点公司，也必须满足以下至少一条才保留：
+        # 1. 重大发布/更新（模型、产品、战略合作）
+        # 2. 重大运营数据（收入、用户数、规模）
+        # 3. 监管/许可相关
+        # 4. 自动驾驶相关
+        important_indicators = [
+            '发布', '推出', '上线', '开源', '宣布', '达成', '合作',
+            '收入', '用户', '订单', '规模', '车队', '里程',
+            '许可', '牌照', '获批', '监管', '法规', '准入',
+            '自动驾驶', 'robotaxi', 'fsd', '无人', '智驾',
+            '解散', '重组', '合并', '收购',
+        ]
+        has_importance = any(kw in title.lower() for kw in important_indicators)
+
+        if not has_importance:
+            return False, f'重点公司但非重要动态({matched_company})', is_ad
+
+        return True, f'重点公司重要动态({matched_company})', is_ad
 
     # 6. 重大突破/要闻检查（非重点公司但重大突破）
     if is_breakthrough_news(title, summary):
@@ -809,6 +841,7 @@ def validate_report(report: Dict, check_url: bool = True) -> Tuple[bool, str]:
 def filter_news(items: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict]:
     """
     过滤行业资讯，分离国外政策，支持AD配额与补充搜索
+    v2: 新增严格日期过滤、重点公司重要性门槛
 
     返回: (行业资讯列表, 国外政策列表, 统计字典)
     """
@@ -822,12 +855,33 @@ def filter_news(items: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict]:
         'ad_count': 0,
         'ai_count': 0,
         'ad_recovered': 0,
+        'date_filtered': 0,
         'rejected': {}
     }
+
+    today = datetime.now().date()
+    yesterday = today - timedelta(days=1)
 
     for item in items:
         title = item.get('title', '')
         summary = item.get('summary', '') or ''
+        date_str = item.get('date', '')
+
+        # ===== 新增：严格日期过滤（时效性红线）=====
+        if date_str:
+            try:
+                if 'T' in date_str:
+                    item_date = datetime.fromisoformat(date_str.replace('Z', '+00:00')).date()
+                else:
+                    item_date = datetime.strptime(date_str[:10], '%Y-%m-%d').date()
+
+                # 只保留昨天和今天的文章
+                if item_date < yesterday or item_date > today:
+                    stats['date_filtered'] += 1
+                    continue
+            except:
+                pass  # 日期解析失败时保留（避免误杀）
+        # ==========================================
 
         # 检查是否是国外政策
         is_foreign_policy = any(kw in title.lower() or kw in summary.lower()
@@ -879,11 +933,12 @@ def filter_news(items: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict]:
     stats['need_supplement'] = ad_count < 3
 
     print(f"[行业资讯过滤] 原始: {stats['total']} -> 保留: {stats['passed']}, 国外政策: {stats['foreign_policy']}")
+    print(f"  - 日期过滤: {stats['date_filtered']} 条（仅保留昨天/今天）")
     print(f"  - AD新闻: {stats['ad_count']} 条, AI新闻: {stats['ai_count']} 条 (AD占比: {stats['ad_ratio']}%)")
     if stats['ad_recovered'] > 0:
         print(f"  - 放宽找回AD: {stats['ad_recovered']} 条")
     if stats['need_supplement']:
-        print(f"  [警告] AD内容严重不足({stats['ad_count']}<3)，触发补充搜索")
+        print(f"  [警告] AD内容严重不足({stats['ad_count']}']}<3)，触发补充搜索")
     for reason, count in stats['rejected'].items():
         print(f"  - {reason}: {count}")
 

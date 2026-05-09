@@ -173,10 +173,66 @@ def extract_links_from_page(html: str, base_url: str) -> List[Dict]:
     return articles
 
 
+def extract_article_date(article_html: str, url: str) -> Optional[str]:
+    """从文章页面提取实际发布日期"""
+    if not article_html:
+        return None
+
+    soup = BeautifulSoup(article_html, 'html.parser')
+
+    # 策略1: 查找 <time> 标签
+    time_tag = soup.find('time')
+    if time_tag and time_tag.get('datetime'):
+        return time_tag['datetime'][:10]
+
+    # 策略2: 查找 meta publishedDate / article:published_time
+    for meta_name in ['publishedDate', 'article:published_time', 'publish-date', 'datePublished']:
+        meta = soup.find('meta', attrs={'property': meta_name}) or soup.find('meta', attrs={'name': meta_name})
+        if meta and meta.get('content'):
+            return meta['content'][:10]
+
+    # 策略3: 从URL提取日期 /2026/05/08/ 或 -2026-05-08
+    date_patterns = [
+        r'/(20\d{2})/(\d{2})/(\d{2})/',
+        r'/(20\d{2})-(\d{2})-(\d{2})',
+        r'/(20\d{2})(\d{2})(\d{2})',
+    ]
+    for pattern in date_patterns:
+        match = re.search(pattern, url)
+        if match:
+            return f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+
+    return None
+
+
+def extract_enhanced_summary(article_html: str, title: str, name: str) -> str:
+    """提取更详细的摘要，英文标题时提取更长内容"""
+    if not article_html:
+        return f'来自{name}官网的自动驾驶相关动态。'
+
+    soup = BeautifulSoup(article_html, 'html.parser')
+
+    # 尝试提取meta description
+    meta_desc = soup.find('meta', attrs={'name': 'description'})
+    if meta_desc and meta_desc.get('content'):
+        desc = meta_desc['content']
+        if len(desc) > 50:
+            return desc[:500]
+
+    # 提取前5个段落（比原来多2个）
+    paragraphs = soup.find_all('p')
+    texts = [p.get_text(strip=True) for p in paragraphs[:5] if len(p.get_text(strip=True)) > 20]
+    if texts:
+        return ' '.join(texts)[:500]
+
+    return f'来自{name}官网的自动驾驶相关动态。'
+
+
 def fetch_company_news(company: Dict, date_window_days: int = 2) -> List[Dict]:
     """
     抓取单个公司官网新闻
     返回标准格式的字典列表
+    v2: 提取实际日期、增强摘要
     """
     name = company['name']
     url = company['url']
@@ -193,27 +249,29 @@ def fetch_company_news(company: Dict, date_window_days: int = 2) -> List[Dict]:
     # 转换为统一格式
     results = []
     today = datetime.now().date()
-    yesterday = today - timedelta(days=1)
 
     for link in links[:15]:  # 每站最多15条
-        # 尝试访问文章页面获取摘要（简要实现）
-        summary = f'来自{name}官网的自动驾驶相关动态。'
+        article_html = None
         try:
             article_html = fetch_page(link['url'], timeout=10)
-            if article_html:
-                article_soup = BeautifulSoup(article_html, 'html.parser')
-                # 尝试提取meta description
-                meta_desc = article_soup.find('meta', attrs={'name': 'description'})
-                if meta_desc and meta_desc.get('content'):
-                    summary = meta_desc['content'][:300]
-                else:
-                    # 提取前几个段落
-                    paragraphs = article_soup.find_all('p')
-                    texts = [p.get_text(strip=True) for p in paragraphs[:3] if len(p.get_text(strip=True)) > 20]
-                    if texts:
-                        summary = ' '.join(texts)[:300]
         except Exception:
             pass
+
+        # ===== 新增：提取实际日期 =====
+        actual_date = extract_article_date(article_html, link['url'])
+        if actual_date:
+            try:
+                item_date = datetime.strptime(actual_date, '%Y-%m-%d').date()
+                # 过滤超过2天的旧文章
+                if (today - item_date).days > date_window_days:
+                    print(f"    [跳过旧文] {link['title'][:40]}... ({actual_date})")
+                    continue
+            except:
+                pass
+        # =============================
+
+        # ===== 增强摘要提取 =====
+        summary = extract_enhanced_summary(article_html, link['title'], name)
 
         item = {
             'title': link['title'],
@@ -221,7 +279,7 @@ def fetch_company_news(company: Dict, date_window_days: int = 2) -> List[Dict]:
             'source': f'{name}官网',
             'url': link['url'],
             'country': 'industry',
-            'date': datetime.now().strftime('%Y-%m-%d'),
+            'date': actual_date or datetime.now().strftime('%Y-%m-%d'),
             'keywords': [],
             'is_official': True,
             'company': name,

@@ -31,6 +31,40 @@ from processor.policy_search import (
     get_search_keywords_for_today,
 )
 
+
+def load_lessons_learned():
+    """读取踩坑记录，打印提醒"""
+    lessons_path = Path.home() / '.codex' / 'skills' / 'researcher-handbook' / 'LESSONS_LEARNED.md'
+    if not lessons_path.exists():
+        print("[提醒] LESSONS_LEARNED.md 未找到，跳过")
+        return
+
+    print("\n" + "=" * 60)
+    print("[研究员手册] 读取 LESSONS_LEARNED.md 踩坑记录")
+    print("=" * 60)
+
+    try:
+        with open(lessons_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 提取关键提醒
+        reminders = []
+        if '时效性红线' in content:
+            reminders.append("时效性：只保留昨天/今天的文章")
+        if '英文必须翻译' in content:
+            reminders.append("翻译：所有英文标题必须翻译中文")
+        if 'Nuro' in content:
+            reminders.append("必查：Nuro许可动态、Tesla Robotaxi、Waymo扩张")
+        if '坏来源' in content:
+            reminders.append("来源：CB Insights等坏来源已过滤")
+
+        for r in reminders:
+            print(f"  - {r}")
+
+        print("=" * 60 + "\n")
+    except Exception as e:
+        print(f"[提醒] 读取 LESSONS_LEARNED.md 失败: {e}")
+
 # 搜索统计
 search_stats = {
     'baidu_total': 0,
@@ -112,6 +146,9 @@ def fetch_and_filter(date_str: str = None, skip_url_check: bool = False, include
     print(f"[数据获取与过滤] {date_str}")
     print("=" * 60)
 
+    # 读取踩坑记录
+    load_lessons_learned()
+
     # 1. 获取政府官网政策（优先级最高）
     gov_policy_data = []
     if include_gov:
@@ -164,11 +201,11 @@ def fetch_and_filter(date_str: str = None, skip_url_check: bool = False, include
     print("\n[5/5] 获取 AIHOT 数据...")
     scraper = AIHOTScraper()
 
-    industry_items = scraper.fetch_industry_news(days=7)
-    print(f"  行业资讯原始: {len(industry_items)} 条")
+    industry_items = scraper.fetch_industry_news(days=2)
+    print(f"  行业资讯原始: {len(industry_items)} 条 (最近2天)")
 
-    policy_items = scraper.fetch_policy_news(days=7)
-    print(f"  政策动向原始: {len(policy_items)} 条")
+    policy_items = scraper.fetch_policy_news(days=2)
+    print(f"  政策动向原始: {len(policy_items)} 条 (最近2天)")
 
     # 6. 加载研报数据
     print("\n[6/7] 加载研报数据...")
