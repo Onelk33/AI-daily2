@@ -45,6 +45,9 @@ class GlobalResearchScraper:
             {'name': '艾瑞咨询', 'url': 'https://www.iresearch.com.cn/report/', 'country': '中国'},
             {'name': '易观分析', 'url': 'https://www.analysys.cn/article/list.html', 'country': '中国'},
             {'name': '艾媒咨询', 'url': 'https://www.iimedia.cn/c400', 'country': '中国'},
+            {'name': '头豹研究院', 'url': 'https://www.leadleo.com/', 'country': '中国'},
+            {'name': '前瞻产业研究院', 'url': 'https://bg.qianzhan.com/', 'country': '中国'},
+            {'name': '智研咨询', 'url': 'https://www.chyxx.com/', 'country': '中国'},
         ],
         '科技媒体': [
             {'name': '36氪研究院', 'url': 'https://36kr.com/academy', 'country': '中国'},
