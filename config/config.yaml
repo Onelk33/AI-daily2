@@ -1,0 +1,186 @@
+# 日报 Agent 配置文件
+
+# 知识库配置
+knowledge:
+  # 目标知识库 ID（从 URL 中提取）
+  repo_guid: "C_qRNBmIGk"
+  # 父文档 ID（日报将创建为该文档的子文档）
+  parent_doc_guid: "2vEh5FE4s9vzBL"
+  # 默认创建者用户名
+  creator: "zhangyuqi11"
+
+# AI 配置（用于内容摘要和整理）
+ai:
+  # 使用 OpenAI 兼容的 API
+  api_base: "https://api.openai.com/v1"
+  model: "gpt-4"
+  # 或者使用百度内部模型
+  # api_base: "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/completions"
+  # model: "ernie-bot-4"
+
+# 信息源配置
+sources:
+  # 微信公众号
+  wechat:
+    enabled: true
+    # 公众号列表（名称或 ID）
+    accounts:
+      - "央视新闻"
+      - "人民日报"
+      - "新华社"
+    # 关键词过滤（可选）
+    keywords:
+      - "政策"
+      - "经济"
+      - "科技"
+
+  # 政府官网
+  government:
+    enabled: true
+    sites:
+      - name: "发改委"
+        url: "https://www.ndrc.gov.cn/xwdt/tzgg/"
+        type: "policy"
+      - name: "国务院政策文件"
+        url: "https://www.gov.cn/zhengce/"
+        type: "policy"
+      - name: "科技部"
+        url: "https://www.most.gov.cn/xxgk/xinxifenlei/fdzdgknr/fgzc/gfxwj/"
+        type: "policy"
+
+  # 重点公司官网
+  companies:
+    enabled: true
+    list:
+      # 自动驾驶公司
+      - name: "Waymo"
+        news_url: "https://waymo.com/blog/"
+      - name: "Zoox"
+        news_url: "https://zoox.com/press-room"
+      - name: "Tesla"
+        news_url: "https://ir.tesla.com/press"
+      - name: "Pony.ai"
+        news_url: "https://pony.ai/press?lang=zh"
+      - name: "WeRide"
+        news_url: "https://ir.weride.ai/news-events/news-releases"
+      # 科技公司
+      - name: "腾讯"
+        news_url: "https://www.tencent.com/zh-cn/articles"
+      - name: "百度"
+        news_url: "https://www.baidu.com/"
+
+  # 新闻媒体
+  news:
+    enabled: true
+    sites:
+      # 国内媒体
+      - name: "财新网"
+        url: "https://www.caixin.com/"
+      - name: "36氪"
+        url: "https://36kr.com/"
+      - name: "第一财经"
+        url: "https://www.yicai.com/"
+      - name: "虎嗅"
+        url: "https://www.huxiu.com/"
+      - name: "钛媒体"
+        url: "https://www.tmtpost.com/"
+      - name: "机器之心"
+        url: "https://www.jiqizhixin.com/"
+      - name: "量子位"
+        url: "https://www.qbitai.com/"
+      - name: "新浪科技"
+        url: "https://tech.sina.com.cn/"
+      # 国际媒体
+      - name: "TechCrunch"
+        url: "https://techcrunch.com/latest/"
+      - name: "Reuters Technology"
+        url: "https://www.reuters.com/technology/"
+      - name: "Business Insider"
+        url: "https://www.businessinsider.com/"
+      - name: "The Information"
+        url: "https://www.theinformation.com/"
+      - name: "Driverless Report"
+        url: "https://www.driverlessreport.com/"
+      - name: "AV America"
+        url: "https://avamerica.org/"
+      - name: "Autonomous Vehicles AI"
+        url: "https://autonomous-vehicles.ai/"
+      - name: "eMove360 AI Driving"
+        url: "https://www.emove360.com/category/ai_automated_driving/"
+
+# 日报配置
+daily_report:
+  # 日报标题格式
+  title_format: "【日报】{date} 政策与行业动态"
+  # 生成时间（24小时制）
+  generate_time: "18:00"
+  # 时区
+  timezone: "Asia/Shanghai"
+  # 是否自动发布到知识库
+  auto_publish: true
+  # 内容过滤关键词（只保留包含这些关键词的新闻）
+  filter_keywords:
+    # AI 相关
+    - "AI"
+    - "人工智能"
+    - "ChatGPT"
+    - "GPT"
+    - "大模型"
+    - "机器学习"
+    - "深度学习"
+    - "神经网络"
+    - "OpenAI"
+    - "Anthropic"
+    - "Claude"
+    - "Gemini"
+    - "LLM"
+    - "AGI"
+    - "生成式"
+    - "AIGC"
+    # 自动驾驶相关
+    - "自动驾驶"
+    - "无人驾驶"
+    - "无人车"
+    - "robotaxi"
+    - "Robotaxi"
+    - "Robotaxi"
+    - "Waymo"
+    - "Cruise"
+    - "Zoox"
+    - "Pony"
+    - "WeRide"
+    - "文远知行"
+    - "小马智行"
+    - "特斯拉"
+    - "Tesla"
+    - "FSD"
+    - "Autopilot"
+    - "自动驾驶"
+    - "autonomous"
+    - "driverless"
+    - "self-driving"
+    - "L4"
+    - "L3"
+    - "智能驾驶"
+    - "智能网联"
+    - "车载"
+    - "车路协同"
+    - "激光雷达"
+    - "LiDAR"
+    - "感知"
+    - "决策"
+    - "智驾"
+
+# 日志配置
+logging:
+  level: "INFO"
+  file: "logs/daily_agent.log"
+  max_size_mb: 10
+  backup_count: 5
+
+# 缓存配置（避免重复抓取）
+cache:
+  enabled: true
+  db_path: "data/cache.db"
+  # 缓存过期时间（小时）
+  expire_hours: 24

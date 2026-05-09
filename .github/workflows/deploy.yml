@@ -1,0 +1,126 @@
+name: 每日日报自动生成
+
+# ========================================
+# 网站访问地址说明
+# ========================================
+# 部署成功后，你的日报网站访问地址为：
+# 
+#   https://${你的GitHub用户名}.github.io/${你的仓库名}/
+#
+# 例如：
+#   - 用户名: zhangyuqi
+#   - 仓库名: comate-zulu-demo
+#   - 网址: https://zhangyuqi.github.io/comate-zulu-demo/
+#
+# 首次使用步骤：
+# 1. 将代码推送到GitHub仓库
+# 2. 进入 Settings → Pages，选择 gh-pages 分支
+# 3. 等待几分钟后访问上述网址
+# ========================================
+
+on:
+  schedule:
+    # 每天 UTC 10:00 运行（北京时间 18:00）
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    # 支持手动触发
+    inputs:
+      date_range:
+        description: '日期范围 (格式: YYYY-MM-DD 至 YYYY-MM-DD)'
+        required: false
+        default: ''
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # 获取完整历史用于历史日报
+    
+    - name: 设置 Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: 安装依赖
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: 计算日期范围
+      id: date
+      run: |
+        if [ -n "${{ github.event.inputs.date_range }}" ]; then
+          # 手动触发，解析用户输入的日期范围
+          IFS='至' read -r start_date end_date <<< "${{ github.event.inputs.date_range }}"
+          start_date=$(echo $start_date | tr -d ' ')
+          end_date=$(echo $end_date | tr -d ' ')
+          echo "START_DATE=$start_date" >> $GITHUB_ENV
+          echo "END_DATE=$end_date" >> $GITHUB_ENV
+        else
+          # 自动触发，默认昨天到今天
+          TODAY=$(date -u +"%Y-%m-%d")
+          YESTERDAY=$(date -u -d "yesterday" +"%Y-%m-%d")
+          echo "START_DATE=$YESTERDAY" >> $GITHUB_ENV
+          echo "END_DATE=$TODAY" >> $GITHUB_ENV
+        fi
+    
+    - name: 获取数据并过滤
+      run: |
+        echo "开始获取数据..."
+        echo "时间范围: $START_DATE 至 $END_DATE"
+        
+        # 设置网站基础URL
+        export SITE_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+        
+        # 获取数据（不依赖API Key）
+        python fetch_filtered.py --date "$END_DATE" --skip-url-check
+    
+    - name: 构建网站
+      run: |
+        echo "开始构建网站..."
+        
+        export SITE_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+        
+        # 构建静态网站
+        python build_site.py
+        
+        echo "网站构建完成！"
+    
+    - name: 生成统计信息
+      run: |
+        echo "## 📊 日报统计" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # 统计各类数据
+        DAILY_COUNT=$(ls docs/daily/*.html 2>/dev/null | wc -l || echo 0)
+        echo "- 历史日报总数: $DAILY_COUNT 份" >> $GITHUB_STEP_SUMMARY
+        
+        # 今日数据统计
+        TODAY=$(date -u +"%Y-%m-%d")
+        if [ -f "data/site_data/${TODAY}.json" ]; then
+          POLICY_COUNT=$(cat "data/site_data/${TODAY}.json" | python -c "import sys, json; d=json.load(sys.stdin); print(d.get('stats', {}).get('policy_count', 0))" 2>/dev/null || echo 0)
+          NEWS_COUNT=$(cat "data/site_data/${TODAY}.json" | python -c "import sys, json; d=json.load(sys.stdin); print(d.get('stats', {}).get('news_count', 0))" 2>/dev/null || echo 0)
+          echo "- 今日政策: $POLICY_COUNT 条" >> $GITHUB_STEP_SUMMARY
+          echo "- 今日资讯: $NEWS_COUNT 条" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📅 生成时间: $(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+    
+    - name: 部署到 GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs
+        publish_branch: gh-pages
+        force_orphan: true
+    
+    - name: 输出网站地址
+      run: |
+        echo "✅ 网站已部署！" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "🌐 访问地址: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/" >> $GITHUB_STEP_SUMMARY

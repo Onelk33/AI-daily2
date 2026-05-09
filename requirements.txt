@@ -1,0 +1,27 @@
+# Core dependencies
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+python-dateutil>=2.8.0
+
+# Web scraping
+playwright>=1.40.0
+selenium>=4.15.0
+
+# Content processing
+jieba>=0.42.1
+openai>=1.0.0
+
+# Task scheduling
+schedule>=1.2.0
+
+# Utilities
+pyyaml>=6.0
+python-dotenv>=1.0.0
+rich>=13.7.0
+
+# Optional: RSS feed parsing
+feedparser>=6.0.10
+
+# Web interface
+flask>=3.0.0
