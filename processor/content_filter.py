@@ -938,7 +938,7 @@ def filter_news(items: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict]:
     if stats['ad_recovered'] > 0:
         print(f"  - 放宽找回AD: {stats['ad_recovered']} 条")
     if stats['need_supplement']:
-        print(f"  [警告] AD内容严重不足({stats['ad_count']}']}<3)，触发补充搜索")
+        print(f"  [警告] AD内容严重不足({stats['ad_count']}条<3)，触发补充搜索")
     for reason, count in stats['rejected'].items():
         print(f"  - {reason}: {count}")
 
