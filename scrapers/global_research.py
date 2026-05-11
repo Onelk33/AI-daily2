@@ -6,6 +6,7 @@ AI行业研报全网自动搜索抓取模块
 """
 import re
 import json
+from pathlib import Path
 from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
 from datetime import datetime
