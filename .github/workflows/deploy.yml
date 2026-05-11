@@ -19,24 +19,26 @@ jobs:
         with:
           python-version: '3.10'
       - run: pip install -r requirements.txt
-      - name: 搜索研报
-        run: python -c "from scrapers.global_research import search_and_save; search_and_save(days=3, output_file='data/global_research_reports.json')"
-      - name: 拉取历史日报
+      - name: 拉取历史日报页面
         run: |
-          mkdir -p docs/daily docs/css docs/js
+          mkdir -p docs/daily docs/css
           git fetch origin gh-pages 2>/dev/null || true
           if git ls-remote --heads origin gh-pages 2>/dev/null | grep -q gh-pages; then
             git checkout origin/gh-pages -- . 2>/dev/null || true
-            mkdir -p docs/daily
+            mkdir -p docs/daily docs/css
             cp -r daily/* docs/daily/ 2>/dev/null || true
             cp -r css/* docs/css/ 2>/dev/null || true
             git checkout master -- . 2>/dev/null || true
           fi
           echo "Existing daily pages:"
           ls -la docs/daily/ 2>/dev/null || echo "none"
-      - run: python fetch_filtered.py --date $(date +%Y-%m-%d)
-      - run: python build_site.py
-      - name: Deploy to GitHub Pages
+      - name: 通过 Tavily Search API 抓取日报数据
+        run: python fetch_search_api.py
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      - name: 构建静态网站
+        run: python build_site.py
+      - name: 部署到 GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
