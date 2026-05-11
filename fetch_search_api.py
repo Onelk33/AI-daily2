@@ -108,6 +108,9 @@ def search_with_tavily(client: TavilyClient, query: str, target_date: str) -> Li
             include_answer=False,
         )
         results = response.get("results", [])
+        print(f"[DEBUG] Query '{query}' -> Tavily returned {len(results)} raw results")
+        for i, r in enumerate(results[:3], 1):
+            print(f"[DEBUG]   {i}. {r.get('title', 'N/A')[:60]}")
 
         filtered = []
         for r in results:
@@ -117,6 +120,7 @@ def search_with_tavily(client: TavilyClient, query: str, target_date: str) -> Li
 
             # 跳过明显过时的内容（去年或更早）
             if is_obviously_old(title, target_date):
+                print(f"[DEBUG]   SKIPPED (old): {title[:60]}")
                 continue
 
             # Tavily 返回的结果已经按相关性和时效性排序，直接采纳前几条
@@ -128,6 +132,7 @@ def search_with_tavily(client: TavilyClient, query: str, target_date: str) -> Li
                 "date": target_date,
                 "country": "中国" if ".cn" in url else "美国" if ".com" in url else "国际",
             })
+        print(f"[DEBUG] Query '{query}' -> {len(filtered)} kept after filter")
         return filtered
     except Exception as e:
         print(f"[ERROR] Tavily search failed for '{query}': {e}")
@@ -210,10 +215,14 @@ def fetch_daily_data(target_date: str = None) -> Dict:
                 all_news.append(r)
         print(f"[INFO] Research query '{q}' -> {len(results)} recent results")
 
+    print(f"[DEBUG] Before dedup: policy={len(all_policy)}, news={len(all_news)}, research={len(all_research)}")
+
     # 去重
     all_policy = deduplicate(all_policy)
     all_news = deduplicate(all_news)
     all_research = deduplicate(all_research)
+
+    print(f"[DEBUG] After dedup: policy={len(all_policy)}, news={len(all_news)}, research={len(all_research)}")
 
     # 限制条数
     all_policy = all_policy[:8]
