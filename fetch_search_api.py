@@ -172,7 +172,7 @@ def fetch_daily_data(target_date: str = None) -> Dict:
     if target_date is None:
         target_date = get_target_date()
 
-    api_key = os.environ.get("TAVILY_API_KEY")
+    api_key = os.environ.get("TAVILY_API_KEY", "").strip()
     if not api_key:
         print("[ERROR] TAVILY_API_KEY not set")
         sys.exit(1)
