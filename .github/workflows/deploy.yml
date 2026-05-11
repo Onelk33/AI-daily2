@@ -21,6 +21,18 @@ jobs:
       - run: pip install -r requirements.txt
       - name: 搜索研报
         run: python -c "from scrapers.global_research import search_and_save; search_and_save(days=3, output_file='data/global_research_reports.json')"
+      - name: 拉取历史日报
+        run: |
+          git fetch origin gh-pages:gh-pages-temp || echo "gh-pages branch not found"
+          mkdir -p docs/daily docs/css docs/js
+          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+            git archive origin/gh-pages | tar -x -C docs_tmp 2>/dev/null || true
+            if [ -d docs_tmp/daily ]; then cp -r docs_tmp/daily/* docs/daily/ 2>/dev/null || true; fi
+            if [ -d docs_tmp/css ]; then cp -r docs_tmp/css/* docs/css/ 2>/dev/null || true; fi
+            if [ -d docs_tmp/js ]; then cp -r docs_tmp/js/* docs/js/ 2>/dev/null || true; fi
+          fi
+          ls -la docs/daily/ || echo "no existing daily pages"
+        shell: bash
       - run: python fetch_filtered.py --date $(date +%Y-%m-%d) --skip-url-check
       - run: python build_site.py
       - name: Deploy to GitHub Pages
@@ -29,4 +41,3 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./docs
           publish_branch: gh-pages
-          force_orphan: true
