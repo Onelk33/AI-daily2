@@ -78,7 +78,6 @@ class GlobalResearchScraper:
             {'name': 'Gartner', 'url': 'https://www.gartner.com/en/information-technology/insights', 'country': '美国'},
             {'name': 'IDC', 'url': 'https://www.idc.com/insights', 'country': '美国'},
             {'name': 'Forrester', 'url': 'https://www.forrester.com/blogs/', 'country': '美国'},
-            {'name': 'CB Insights', 'url': 'https://www.cbinsights.com/research/', 'country': '美国'},
         ],
         '学术社区': [
             {'name': 'arXiv', 'url': 'https://arxiv.org/list/cs.AI/recent', 'country': '国际'},
@@ -536,6 +535,7 @@ def search_and_save(days: int = 7, output_file: str = None) -> List[ResearchRepo
     
     if output_file:
         # 保存为JSON
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
         data = [asdict(r) for r in reports]
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
