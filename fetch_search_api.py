@@ -12,34 +12,33 @@ from typing import List, Dict
 
 from tavily import TavilyClient
 
-# 搜索关键词配置
+# 搜索关键词配置（已包含时间限定，依赖 Tavily 排名保证时效性）
 SEARCH_QUERIES = {
     "policy": [
-        "site:gov.cn 自动驾驶 智能网联汽车",
-        "site:xinhuanet.com 人工智能 政策",
-        "site:people.com.cn 自动驾驶 监管",
-        "site:mofcom.gov.cn 人工智能 智能网联",
-        "工信部 自动驾驶 智能网联汽车 政策",
-        "网信办 人工智能 规范 意见",
-        "自动驾驶 法规 新规 发布",
+        "site:gov.cn 自动驾驶 智能网联汽车 最新",
+        "site:xinhuanet.com 人工智能 政策 最新",
+        "site:people.com.cn 自动驾驶 监管 最新",
+        "工信部 自动驾驶 智能网联汽车 最新政策",
+        "网信办 人工智能 规范 意见 最新",
+        "自动驾驶 法规 新规 最新发布",
     ],
     "news": [
-        "Robotaxi 商业化 运营 2026",
-        "特斯拉 FSD Robotaxi 2026",
-        "Waymo 自动驾驶 运营 2026",
-        "英伟达 AI 投资 2026",
-        "OpenAI Anthropic 融资 估值 2026",
-        "百度 Apollo 萝卜快跑 自动驾驶 2026",
-        "小马智行 文远知行 自动驾驶 2026",
-        "华为 智能驾驶 乾崑 2026",
-        "字节跳动 AI 大模型 2026",
-        "自动驾驶 L3 L4 量产 2026",
+        "Robotaxi 商业化 运营 最新",
+        "特斯拉 FSD Robotaxi 最新进展",
+        "Waymo 自动驾驶 运营 最新",
+        "英伟达 AI 投资 最新",
+        "OpenAI Anthropic 融资 估值 最新",
+        "百度 Apollo 萝卜快跑 自动驾驶 最新",
+        "小马智行 文远知行 自动驾驶 最新",
+        "华为 智能驾驶 乾崑 最新",
+        "字节跳动 AI 大模型 最新",
+        "自动驾驶 L3 L4 量产 最新",
     ],
     "research": [
-        "自动驾驶 研报 投资策略 2026",
-        "Robotaxi 研究报告 行业分析 2026",
-        "智能驾驶 深度研究 券商 2026",
-        "AI 大模型 行业报告 2026",
+        "自动驾驶 研报 投资策略 最新",
+        "Robotaxi 研究报告 行业分析 最新",
+        "智能驾驶 深度研究 券商 最新",
+        "AI 大模型 行业报告 最新",
     ],
 }
 
@@ -47,34 +46,6 @@ SEARCH_QUERIES = {
 def get_target_date() -> str:
     """获取目标日期（今天）"""
     return datetime.now().strftime("%Y-%m-%d")
-
-
-def get_date_patterns(target_date: str) -> List[str]:
-    """生成目标日期和昨天的各种匹配模式"""
-    dt = datetime.strptime(target_date, "%Y-%m-%d")
-    yesterday = dt - timedelta(days=1)
-
-    patterns = []
-    for d in [dt, yesterday]:
-        y, m, day = d.year, d.month, d.day
-        patterns.extend([
-            f"{y}-{m:02d}-{day:02d}",       # 2026-05-11
-            f"{y}年{m}月{day}日",            # 2026年5月11日
-            f"{m}月{day}日",                 # 5月11日
-            f"{m:02d}-{day:02d}",            # 05-11
-            f"{y}{m:02d}{day:02d}",          # 20260511
-            f"{y}/{m:02d}/{day:02d}",        # 2026/05/11
-        ])
-    return patterns
-
-
-def is_recent(text: str, target_date: str) -> bool:
-    """检查文本是否包含目标日期或昨天的日期标记"""
-    if not text:
-        return False
-    patterns = get_date_patterns(target_date)
-    text_lower = text.lower()
-    return any(p in text_lower for p in patterns)
 
 
 def is_policy_item(item: Dict) -> bool:
@@ -109,6 +80,24 @@ def deduplicate(items: List[Dict]) -> List[Dict]:
     return result
 
 
+def is_obviously_old(text: str, target_date: str) -> bool:
+    """检查是否为明显过时的内容（标题中出现去年或更早的明确日期）"""
+    if not text:
+        return False
+    dt = datetime.strptime(target_date, "%Y-%m-%d")
+    current_year = dt.year
+    current_month = dt.month
+
+    # 如果标题中出现明确早于今年的年份，认为是旧闻
+    year_pattern = re.compile(r'20(\d{2})年')
+    for match in year_pattern.finditer(text):
+        year = int(match.group(1))
+        if year + 2000 < current_year:
+            return True
+
+    return False
+
+
 def search_with_tavily(client: TavilyClient, query: str, target_date: str) -> List[Dict]:
     """调用 Tavily API 搜索并筛选近期结果"""
     try:
@@ -125,17 +114,20 @@ def search_with_tavily(client: TavilyClient, query: str, target_date: str) -> Li
             title = r.get("title", "")
             content = r.get("content", "")
             url = r.get("url", "")
-            # 组合标题+摘要+URL 做日期匹配
-            combined = f"{title} {content} {url}"
-            if is_recent(combined, target_date):
-                filtered.append({
-                    "title": title,
-                    "url": url,
-                    "summary": content[:500] if content else "",
-                    "source": extract_source(url),
-                    "date": target_date,
-                    "country": "中国" if ".cn" in url else "美国" if ".com" in url else "国际",
-                })
+
+            # 跳过明显过时的内容（去年或更早）
+            if is_obviously_old(title, target_date):
+                continue
+
+            # Tavily 返回的结果已经按相关性和时效性排序，直接采纳前几条
+            filtered.append({
+                "title": title,
+                "url": url,
+                "summary": content[:500] if content else "",
+                "source": extract_source(url),
+                "date": target_date,
+                "country": "中国" if ".cn" in url else "美国" if ".com" in url else "国际",
+            })
         return filtered
     except Exception as e:
         print(f"[ERROR] Tavily search failed for '{query}': {e}")
