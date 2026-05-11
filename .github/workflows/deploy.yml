@@ -23,18 +23,18 @@ jobs:
         run: python -c "from scrapers.global_research import search_and_save; search_and_save(days=3, output_file='data/global_research_reports.json')"
       - name: 拉取历史日报
         run: |
-          mkdir -p docs/daily docs/css docs/js docs_tmp
-          git fetch origin gh-pages || echo "gh-pages not fetched"
-          if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
-            git archive origin/gh-pages 2>/dev/null | tar -x -C docs_tmp || true
-            if [ -d docs_tmp/daily ]; then cp -r docs_tmp/daily/* docs/daily/ 2>/dev/null || true; fi
-            if [ -d docs_tmp/css ]; then cp -r docs_tmp/css/* docs/css/ 2>/dev/null || true; fi
-            if [ -d docs_tmp/js ]; then cp -r docs_tmp/js/* docs/js/ 2>/dev/null || true; fi
+          mkdir -p docs/daily docs/css docs/js
+          git fetch origin gh-pages 2>/dev/null || true
+          if git ls-remote --heads origin gh-pages 2>/dev/null | grep -q gh-pages; then
+            git checkout origin/gh-pages -- . 2>/dev/null || true
+            mkdir -p docs/daily
+            cp -r daily/* docs/daily/ 2>/dev/null || true
+            cp -r css/* docs/css/ 2>/dev/null || true
+            git checkout master -- . 2>/dev/null || true
           fi
           echo "Existing daily pages:"
-          ls -la docs/daily/ || echo "none"
-        shell: bash
-      - run: python fetch_filtered.py --date $(date +%Y-%m-%d) --skip-url-check
+          ls -la docs/daily/ 2>/dev/null || echo "none"
+      - run: python fetch_filtered.py --date $(date +%Y-%m-%d)
       - run: python build_site.py
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4

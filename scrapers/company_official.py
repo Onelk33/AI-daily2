@@ -183,26 +183,69 @@ def extract_article_date(article_html: str, url: str) -> Optional[str]:
     # 策略1: 查找 <time> 标签
     time_tag = soup.find('time')
     if time_tag and time_tag.get('datetime'):
-        return time_tag['datetime'][:10]
+        d = time_tag['datetime'][:10]
+        if _is_valid_date(d):
+            return d
 
-    # 策略2: 查找 meta publishedDate / article:published_time
-    for meta_name in ['publishedDate', 'article:published_time', 'publish-date', 'datePublished']:
+    # 策略2: 查找 meta 标签（多种属性名）
+    for meta_name in ['publishedDate', 'article:published_time', 'publish-date', 'datePublished', 'pubdate', 'creation_date']:
         meta = soup.find('meta', attrs={'property': meta_name}) or soup.find('meta', attrs={'name': meta_name})
         if meta and meta.get('content'):
-            return meta['content'][:10]
+            d = meta['content'][:10]
+            if _is_valid_date(d):
+                return d
 
-    # 策略3: 从URL提取日期 /2026/05/08/ 或 -2026-05-08
+    # 策略3: JSON-LD 中的日期
+    for script in soup.find_all('script', type='application/ld+json'):
+        try:
+            data = json.loads(script.string or '{}')
+            if isinstance(data, dict):
+                for key in ['datePublished', 'dateModified', 'dateCreated']:
+                    if key in data and data[key]:
+                        d = str(data[key])[:10]
+                        if _is_valid_date(d):
+                            return d
+        except:
+            pass
+
+    # 策略4: 从URL提取日期 /2026/05/08/ 或 -2026-05-08 或 /20260508
     date_patterns = [
         r'/(20\d{2})/(\d{2})/(\d{2})/',
         r'/(20\d{2})-(\d{2})-(\d{2})',
         r'/(20\d{2})(\d{2})(\d{2})',
+        r'/(\d{4})(\d{2})(\d{2})',
     ]
     for pattern in date_patterns:
         match = re.search(pattern, url)
         if match:
-            return f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+            d = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+            if _is_valid_date(d):
+                return d
+
+    # 策略5: 页面文本中查找日期模式
+    text = soup.get_text()
+    for pattern in [r'(20\d{2})[/-](\d{1,2})[/-](\d{1,2})', r'(20\d{2})年(\d{1,2})月(\d{1,2})日']:
+        match = re.search(pattern, text[:5000])
+        if match:
+            d = f"{match.group(1)}-{match.group(2).zfill(2)}-{match.group(3).zfill(2)}"
+            if _is_valid_date(d):
+                return d
 
     return None
+
+
+def _is_valid_date(date_str: str) -> bool:
+    """验证日期字符串是否有效且在合理范围内"""
+    if not date_str or len(date_str) != 10:
+        return False
+    try:
+        d = datetime.strptime(date_str, '%Y-%m-%d').date()
+        # 日期不能是未来，也不能太早（2020年以前的文章视为无效）
+        if d > datetime.now().date() or d.year < 2020:
+            return False
+        return True
+    except:
+        return False
 
 
 def extract_enhanced_summary(article_html: str, title: str, name: str) -> str:
@@ -257,18 +300,24 @@ def fetch_company_news(company: Dict, date_window_days: int = 2) -> List[Dict]:
         except Exception:
             pass
 
-        # ===== 新增：提取实际日期 =====
+        # ===== 提取实际日期（核心：时效性红线）=====
         actual_date = extract_article_date(article_html, link['url'])
-        if actual_date:
-            try:
-                item_date = datetime.strptime(actual_date, '%Y-%m-%d').date()
-                # 过滤超过2天的旧文章
-                if (today - item_date).days > date_window_days:
-                    print(f"    [跳过旧文] {link['title'][:40]}... ({actual_date})")
-                    continue
-            except:
-                pass
-        # =============================
+        if not actual_date:
+            # 无法提取日期 → 丢弃，不再硬编码为当天
+            print(f"    [跳过] {link['title'][:40]}... (无法提取日期)")
+            continue
+
+        try:
+            item_date = datetime.strptime(actual_date, '%Y-%m-%d').date()
+            # 过滤超过date_window_days天的旧文章
+            if (today - item_date).days > date_window_days:
+                print(f"    [跳过旧文] {link['title'][:40]}... ({actual_date})")
+                continue
+        except:
+            # 日期解析失败 → 丢弃
+            print(f"    [跳过] {link['title'][:40]}... (日期解析失败: {actual_date})")
+            continue
+        # ==========================================
 
         # ===== 增强摘要提取 =====
         summary = extract_enhanced_summary(article_html, link['title'], name)
@@ -279,7 +328,7 @@ def fetch_company_news(company: Dict, date_window_days: int = 2) -> List[Dict]:
             'source': f'{name}官网',
             'url': link['url'],
             'country': 'industry',
-            'date': actual_date or datetime.now().strftime('%Y-%m-%d'),
+            'date': actual_date,
             'keywords': [],
             'is_official': True,
             'company': name,

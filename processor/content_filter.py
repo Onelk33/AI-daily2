@@ -907,17 +907,35 @@ def filter_news(items: List[Dict]) -> Tuple[List[Dict], List[Dict], Dict]:
                 rejected_ad_candidates.append((item, reason))
             stats['rejected'][reason] = stats['rejected'].get(reason, 0) + 1
 
-    # ========== AD配额强制保障 ==========
+    # ========== AD配额强制保障（但绝不绕过时效性） ==========
     # 目标：AD内容至少3条，占比不低于40%
+    # 铁律：被日期过滤拒绝的旧文章，无论AD多么不足，一律不找回
     total_valid = stats['passed']
     ad_count = stats['ad_count']
 
-    # 第一步：如果AD < 3，从被拒绝的AD候选中找回
+    # 第一步：如果AD < 3，从被拒绝的AD候选中找回（仅限非日期原因）
     if ad_count < 3 and rejected_ad_candidates:
         print(f"  [AD配额] AD不足({ad_count}<3)，尝试从被拒候选中找回...")
         for item, reason in rejected_ad_candidates:
             if ad_count >= 3:
                 break
+            # 如果被拒绝的原因是"日期过滤"，绝对不放回
+            if '日期' in reason or 'date' in reason.lower():
+                continue
+            # 额外检查日期（二次确认）
+            item_date_str = item.get('date', '')
+            if item_date_str:
+                try:
+                    if 'T' in item_date_str:
+                        item_date = datetime.fromisoformat(item_date_str.replace('Z', '+00:00')).date()
+                    else:
+                        item_date = datetime.strptime(item_date_str[:10], '%Y-%m-%d').date()
+                    if item_date < yesterday or item_date > today:
+                        continue  # 旧文章，不放回
+                except:
+                    continue  # 日期解析失败，不放回
+            else:
+                continue  # 没有日期，不放回
             filtered_news.append(item)
             ad_count += 1
             stats['passed'] += 1

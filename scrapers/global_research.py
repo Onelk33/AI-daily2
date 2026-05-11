@@ -209,14 +209,28 @@ class GlobalResearchScraper:
                 if self._is_paywalled(full_url):
                     continue
                 
+                # 提取日期（核心：时效性红线）
+                report_date = self._extract_date(href, soup)
+                if not report_date:
+                    # 无法提取日期 → 丢弃
+                    continue
+
+                # 检查日期是否在范围内（3天内）
+                try:
+                    rdate = datetime.strptime(report_date, '%Y-%m-%d').date()
+                    if (datetime.now().date() - rdate).days > 3:
+                        continue  # 超过3天的旧研报丢弃
+                except:
+                    continue  # 日期解析失败丢弃
+
                 # 提取摘要
                 summary = self._extract_summary(full_url, title)
                 if not summary:
                     summary = self._generate_summary(title)
-                
+
                 # 检测语言
                 language = self._detect_language(title)
-                
+
                 # 创建报告对象
                 report = ResearchReport(
                     title=title[:200],  # 限制标题长度
@@ -225,11 +239,11 @@ class GlobalResearchScraper:
                     language=language,
                     summary=summary,
                     url=full_url,
-                    date=self._extract_date(href, soup) or datetime.now().strftime('%Y-%m-%d'),
+                    date=report_date,
                     keywords=matched_keywords,
                     category=matched_keywords[0] if matched_keywords else 'AI'
                 )
-                
+
                 reports.append(report)
                 self.seen_urls.add(full_url)
                 
@@ -369,31 +383,55 @@ class GlobalResearchScraper:
         return '英文'
     
     def _extract_date(self, href: str, soup) -> Optional[str]:
-        """从URL或页面提取日期"""
+        """从URL或页面提取日期，并进行有效性验证"""
         # 尝试从URL提取日期
         date_patterns = [
             r'/(\d{4})/(\d{2})/(\d{2})/',
             r'/(\d{4})(\d{2})(\d{2})',
             r'(\d{4}-\d{2}-\d{2})',
         ]
-        
+
         for pattern in date_patterns:
             match = re.search(pattern, href)
             if match:
                 groups = match.groups()
                 if len(groups) == 3:
-                    return f"{groups[0]}-{groups[1]}-{groups[2]}"
+                    d = f"{groups[0]}-{groups[1]}-{groups[2]}"
+                    if self._is_valid_date(d):
+                        return d
                 elif len(groups) == 1:
-                    return groups[0]
-        
+                    d = groups[0]
+                    if self._is_valid_date(d):
+                        return d
+
         # 尝试从页面提取
         time_elem = soup.find('time')
         if time_elem:
             date_str = time_elem.get('datetime', '') or time_elem.get_text(strip=True)
-            if date_str:
+            if date_str and self._is_valid_date(date_str[:10]):
                 return date_str[:10]
-        
+
+        # 尝试meta标签
+        for meta_name in ['publishedDate', 'article:published_time', 'datePublished']:
+            meta = soup.find('meta', attrs={'property': meta_name}) or soup.find('meta', attrs={'name': meta_name})
+            if meta and meta.get('content'):
+                d = meta['content'][:10]
+                if self._is_valid_date(d):
+                    return d
+
         return None
+
+    def _is_valid_date(self, date_str: str) -> bool:
+        """验证日期是否有效且在合理范围内"""
+        if not date_str or len(date_str) < 10:
+            return False
+        try:
+            d = datetime.strptime(date_str[:10], '%Y-%m-%d').date()
+            if d > datetime.now().date() or d.year < 2020:
+                return False
+            return True
+        except:
+            return False
     
     def _deduplicate(self):
         """去重"""
@@ -423,11 +461,11 @@ class GlobalResearchScraper:
         self.reports.sort(key=get_category_rank)
     
     def _filter_by_date(self, days: int):
-        """过滤日期"""
+        """过滤日期：超过days天的丢弃，无法解析日期的也丢弃"""
         from datetime import datetime, timedelta
-        
+
         cutoff_date = datetime.now() - timedelta(days=days)
-        
+
         filtered = []
         for report in self.reports:
             try:
@@ -435,9 +473,9 @@ class GlobalResearchScraper:
                 if report_date >= cutoff_date:
                     filtered.append(report)
             except:
-                # 无法解析日期的保留
-                filtered.append(report)
-        
+                # 无法解析日期的丢弃（避免旧文章混入）
+                pass
+
         self.reports = filtered
     
     def to_markdown(self) -> str:
