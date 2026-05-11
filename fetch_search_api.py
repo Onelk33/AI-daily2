@@ -1,6 +1,7 @@
 """
 基于 Tavily Search API 的日报数据抓取脚本
-替代旧的爬虫方案，解决时效性和稳定性问题
+绕过 tavily-python 库，直接使用 requests 调用 REST API
+解决 GitHub Actions 中 header 格式问题
 """
 import os
 import re
@@ -10,9 +11,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict
 
-from tavily import TavilyClient
+import requests
 
-# 搜索关键词配置（已包含时间限定，依赖 Tavily 排名保证时效性）
+TAVILY_API_URL = "https://api.tavily.com/search"
+
+# 搜索关键词配置
 SEARCH_QUERIES = {
     "policy": [
         "site:gov.cn 自动驾驶 智能网联汽车 最新",
@@ -46,6 +49,14 @@ SEARCH_QUERIES = {
 def get_target_date() -> str:
     """获取目标日期（今天）"""
     return datetime.now().strftime("%Y-%m-%d")
+
+
+def clean_api_key(raw: str) -> str:
+    """清理 API Key：只保留字母、数字和连字符"""
+    if not raw:
+        return ""
+    cleaned = ''.join(c for c in raw if c.isalnum() or c == '-')
+    return cleaned.strip()
 
 
 def is_policy_item(item: Dict) -> bool:
@@ -86,9 +97,7 @@ def is_obviously_old(text: str, target_date: str) -> bool:
         return False
     dt = datetime.strptime(target_date, "%Y-%m-%d")
     current_year = dt.year
-    current_month = dt.month
 
-    # 如果标题中出现明确早于今年的年份，认为是旧闻
     year_pattern = re.compile(r'20(\d{2})年')
     for match in year_pattern.finditer(text):
         year = int(match.group(1))
@@ -98,16 +107,21 @@ def is_obviously_old(text: str, target_date: str) -> bool:
     return False
 
 
-def search_with_tavily(client: TavilyClient, query: str, target_date: str) -> List[Dict]:
-    """调用 Tavily API 搜索并筛选近期结果"""
+def search_with_tavily(api_key: str, query: str, target_date: str) -> List[Dict]:
+    """直接调用 Tavily REST API"""
     try:
-        response = client.search(
-            query=query,
-            search_depth="advanced",
-            max_results=10,
-            include_answer=False,
-        )
-        results = response.get("results", [])
+        payload = {
+            "api_key": api_key,
+            "query": query,
+            "search_depth": "advanced",
+            "max_results": 10,
+            "include_answer": False,
+        }
+        response = requests.post(TAVILY_API_URL, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        results = data.get("results", [])
+
         print(f"[DEBUG] Query '{query}' -> Tavily returned {len(results)} raw results")
         for i, r in enumerate(results[:3], 1):
             print(f"[DEBUG]   {i}. {r.get('title', 'N/A')[:60]}")
@@ -118,12 +132,10 @@ def search_with_tavily(client: TavilyClient, query: str, target_date: str) -> Li
             content = r.get("content", "")
             url = r.get("url", "")
 
-            # 跳过明显过时的内容（去年或更早）
             if is_obviously_old(title, target_date):
                 print(f"[DEBUG]   SKIPPED (old): {title[:60]}")
                 continue
 
-            # Tavily 返回的结果已经按相关性和时效性排序，直接采纳前几条
             filtered.append({
                 "title": title,
                 "url": url,
@@ -172,12 +184,13 @@ def fetch_daily_data(target_date: str = None) -> Dict:
     if target_date is None:
         target_date = get_target_date()
 
-    api_key = os.environ.get("TAVILY_API_KEY", "").strip()
-    if not api_key:
-        print("[ERROR] TAVILY_API_KEY not set")
-        sys.exit(1)
+    raw_key = os.environ.get("TAVILY_API_KEY", "")
+    api_key = clean_api_key(raw_key)
+    print(f"[DEBUG] Raw key length: {len(raw_key)}, Cleaned key length: {len(api_key)}")
 
-    client = TavilyClient(api_key=api_key)
+    if not api_key:
+        print("[ERROR] TAVILY_API_KEY not set or empty after cleaning")
+        sys.exit(1)
 
     all_policy = []
     all_news = []
@@ -187,7 +200,7 @@ def fetch_daily_data(target_date: str = None) -> Dict:
 
     # 搜索政策
     for q in SEARCH_QUERIES["policy"]:
-        results = search_with_tavily(client, q, target_date)
+        results = search_with_tavily(api_key, q, target_date)
         for r in results:
             if is_policy_item(r):
                 all_policy.append(r)
@@ -197,7 +210,7 @@ def fetch_daily_data(target_date: str = None) -> Dict:
 
     # 搜索行业资讯
     for q in SEARCH_QUERIES["news"]:
-        results = search_with_tavily(client, q, target_date)
+        results = search_with_tavily(api_key, q, target_date)
         for r in results:
             if is_research_item(r):
                 all_research.append(r)
@@ -207,7 +220,7 @@ def fetch_daily_data(target_date: str = None) -> Dict:
 
     # 搜索研报
     for q in SEARCH_QUERIES["research"]:
-        results = search_with_tavily(client, q, target_date)
+        results = search_with_tavily(api_key, q, target_date)
         for r in results:
             if is_research_item(r):
                 all_research.append(r)
