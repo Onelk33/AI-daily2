@@ -96,6 +96,16 @@ def search_duckduckgo(queries: List[str], max_results: int = 5) -> List[Dict]:
     return all_results
 
 
+def extract_json(text: str) -> str:
+    """从可能包含 markdown 代码块的文本中提取 JSON"""
+    import re
+    # 尝试匹配 ```json ... ``` 或 ``` ... ```
+    match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
+
+
 def generate_daily_report(policy_results: List[Dict], news_results: List[Dict], research_results: List[Dict], target_date: str, api_key: str) -> Dict:
     """调用 DeepSeek API 生成日报"""
     
@@ -120,8 +130,7 @@ def generate_daily_report(policy_results: List[Dict], news_results: List[Dict], 
             {"role": "user", "content": f"以下是今天搜索到的原始素材，请生成日报：\n\n{material}"}
         ],
         "temperature": 0.3,
-        "max_tokens": 4000,
-        "response_format": {"type": "json_object"}
+        "max_tokens": 4000
     }
     
     headers = {
@@ -129,17 +138,37 @@ def generate_daily_report(policy_results: List[Dict], news_results: List[Dict], 
         "Content-Type": "application/json"
     }
     
-    resp = requests.post(
-        "https://api.deepseek.com/chat/completions",
-        json=payload,
-        headers=headers,
-        timeout=120
-    )
-    resp.raise_for_status()
-    
-    content = resp.json()["choices"][0]["message"]["content"]
-    data = json.loads(content)
-    return data
+    try:
+        resp = requests.post(
+            "https://api.deepseek.com/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=120
+        )
+        resp.raise_for_status()
+        
+        content = resp.json()["choices"][0]["message"]["content"]
+        print(f"[DEBUG] DeepSeek raw output length: {len(content)}")
+        print(f"[DEBUG] DeepSeek raw output preview: {content[:200]}")
+        
+        json_text = extract_json(content)
+        data = json.loads(json_text)
+        return data
+    except Exception as e:
+        print(f"[ERROR] DeepSeek API failed: {e}")
+        print("[WARN] Falling back to raw search results")
+        # Fallback: 将搜索结果直接按类别放入
+        return {
+            "policy": policy_results[:5],
+            "news": news_results[:8],
+            "research": research_results[:3],
+            "stats": {
+                "policy_count": len(policy_results[:5]),
+                "news_count": len(news_results[:8]),
+                "research_count": len(research_results[:3]),
+                "paywall_skipped": 0
+            }
+        }
 
 
 def save_data(data: Dict, target_date: str):
