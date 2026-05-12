@@ -14,81 +14,138 @@ from duckduckgo_search import DDGS
 
 # 搜索关键词
 POLICY_QUERIES = [
-    "site:gov.cn 自动驾驶 智能网联汽车",
-    "site:xinhuanet.com 人工智能 政策",
-    "site:people.com.cn 自动驾驶 监管",
-    "工信部 自动驾驶 智能网联汽车 政策",
-    "网信办 人工智能 规范 意见",
+    "自动驾驶 智能网联汽车 政策 发布",
+    "人工智能 监管 政策 新规",
+    "工信部 自动驾驶 准入 试点",
+    "交通运输部 智能网联 道路测试",
+    "L3 自动驾驶 法规 政策",
+    "数据安全 人工智能 管理办法",
+    "robotaxi 政策 监管 许可",
+    "百度 Apollo 自动驾驶 政策",
 ]
 
 NEWS_QUERIES = [
-    "Robotaxi 商业化 运营 最新",
-    "特斯拉 FSD Robotaxi 最新进展",
-    "英伟达 AI 投资 芯片 最新",
-    "OpenAI Anthropic 大模型 融资 最新",
-    "百度 Apollo 萝卜快跑 自动驾驶 最新",
-    "华为 智能驾驶 乾崑 最新",
-    "字节跳动 AI 大模型 豆包 最新",
-    "小马智行 文远知行 自动驾驶 最新",
-    "自动驾驶 L3 L4 量产 最新",
+    "Robotaxi 商业化 运营 城市",
+    "特斯拉 FSD Robotaxi 进展",
+    "英伟达 自动驾驶 芯片 发布",
+    "OpenAI 大模型 发布 更新",
+    "百度 Apollo 萝卜快跑 自动驾驶",
+    "华为 智能驾驶 乾崑 ADS",
+    "字节跳动 豆包 大模型 发布",
+    "小马智行 文远知行 融资 合作",
+    "自动驾驶 L3 L4 量产 落地",
+    "Waymo Cruise 自动驾驶 扩张",
 ]
 
 RESEARCH_QUERIES = [
-    "自动驾驶 研报 投资策略 2026",
-    "智能驾驶 深度研究 券商 2026",
-    "Robotaxi 研究报告 行业分析 2026",
-    "AI 大模型 行业报告 券商 2026",
-    "site:stcn.com 自动驾驶 研报",
-    "site:cs.com.cn 智能驾驶 研究",
-    "site:eastmoney.com 自动驾驶 研报",
+    "智能驾驶 券商 研报 2026",
+    "自动驾驶 行业分析 证券",
+    "Robotaxi 投资 研报 券商",
+    "AI 大模型 券商 研报",
+    "自动驾驶 深度报告 证券",
 ]
 
-SYSTEM_PROMPT = """你是一位专业的 AI/自动驾驶行业日报编辑，服务于"跟进时事+积累素材"的双重目标。
+SYSTEM_PROMPT = """你是一位专业的 AI/自动驾驶行业日报编辑，服务于"跟进时事+积累素材"的双重目标。今天是 {today_date}。
 
-你收到三组搜索结果：
-1. 【政策素材】来自政府网站和官方媒体的搜索结果
-2. 【行业素材】来自科技/财经媒体的搜索结果
-3. 【研报素材】来自券商、研报平台的搜索结果（包含真实的研报标题和摘要）
+你收到三组搜索结果。你的任务是严格筛选，只保留真正的高质量内容。
 
-你的任务：
+## 时效性铁律（最高优先级）
+- 今天（{today_date}）或昨天发布的内容才能收录
+- 如果搜索结果的标题或摘要中显示的日期早于昨天，坚决排除
+- 如果没有明确日期信息，但内容明显是旧闻（如"2025年底""去年""此前已公布"），坚决排除
+- 企业官网的静态介绍页、产品页、招聘页，一律排除——这些不是新闻
 
-1. 【政策动向】从政策素材中筛选最近48小时内发布的政府政策、法规、实施意见。每条必须主体为政府部门，有明确政策条文。如果没有近期政策，policy为空数组。
+## 禁止收录的内容类型
+- 企业官网静态页面（如 tesla.com/robotaxi 产品介绍页）
+- 百科、问答平台的内容（知乎问答、百度百科等）
+- 文档分享站的内容（原创力文档、道客巴巴等）
+- 自媒体/个人博客的转载或洗稿文章
+- 明显由AI生成的低质量内容
+- 日期不明确或明显过时的内容
+- 没有实质信息量的标题党文章
 
-2. 【行业资讯】从行业素材中筛选与AI、自动驾驶、大模型、芯片相关的重大企业动态、技术突破、投融资、商业化进展。优先收录对百度战略有参考价值的内容。严格排除48小时以前的旧闻。
+## 任务1：政策动向
+从政策素材中筛选政府部门的正式政策发布、法规征求意见稿、试点通知等。每条必须：
+- 发布主体为国务院、部委、地方政府等政府机构
+- 有明确的政策名称或文件编号
+- 有实质内容（不能是"关注""将出台"这类模糊表述）
+- 最近2天内发布
+如果没有符合条件的政策，policy返回空数组。
 
-3. 【研报】从研报素材中提取真正的券商研报内容。不要自己编造！必须从搜索结果中找到真实的研报标题、机构名称、核心观点。如果搜索结果中没有研报素材，可以基于当天行业素材写一份简评，但标题要注明"行业简评"而非"研报"。
+## 任务2：行业资讯
+从行业素材中筛选与AI、自动驾驶、大模型、芯片相关的重大动态。每条必须：
+- 是"发生了什么事"——有明确的事件、动作、数据
+- 对百度有直接或间接的战略参考价值
+- 优先收录：产品发布、技术突破、商业合作、投融资、政策影响、市场数据
+- 坚决排除：预测性文章、行业综述、观点评论（无新事件）
 
-时效性铁律：严格只收录最近48小时内的内容。如果搜索结果中某条内容的发布时间明显早于这两天，坚决排除。
+## 任务3：每日研报
+从研报素材中提取真正的券商/研究机构研报。每条必须：
+- 来源为真实金融机构：中信证券、中金公司、国泰君安、海通证券、华泰证券、招商证券、申万宏源、广发证券、东方证券、光大证券、天风证券、兴业证券、国信证券、长城证券、东北证券、中银证券、国泰海通等
+- 有明确的研报标题和核心观点摘要
+- 最近一周内发布
+- 如果搜索结果中没有符合条件的真实研报，research返回空数组——禁止编造！禁止基于行业素材写"简评"冒充研报！
 
-选稿标准：每条内容必须能回答"这对百度有什么意义"或"这能成为研讨会的什么论据"。
-
-输出格式必须是标准 JSON，不要有任何 markdown 代码块标记：
+## 输出格式
+必须是标准 JSON，不要任何 markdown 代码块标记：
 {
   "policy": [
     {"title": "...", "summary": "...", "source": "...", "url": "...", "date": "YYYY-MM-DD", "country": "中国/美国/国际"}
   ],
   "news": [...],
   "research": [
-    {"title": "...", "summary": "...", "source": "...", "url": "...", "date": "YYYY-MM-DD", "country": "中国"}
+    {"title": "...", "summary": "...", "source": "...", "url": "...", "date": "YYYY-MM-DD", "country": "中国/美国/国际"}
   ],
   "stats": {"policy_count": 0, "news_count": 0, "research_count": 0, "paywall_skipped": 0}
 }
 
-today_date: {today_date}
-"""
+重要：宁可少而精，不要多而滥。质量差的素材不如空着。"""
 
 
-def search_duckduckgo(queries: List[str], max_results: int = 5) -> List[Dict]:
-    """使用 DuckDuckGo 搜索"""
+# 研报来源白名单
+RESEARCH_SOURCE_WHITELIST = {
+    "中信证券", "中金公司", "国泰君安", "海通证券", "华泰证券", "招商证券",
+    "申万宏源", "广发证券", "东方证券", "光大证券", "天风证券", "兴业证券",
+    "国信证券", "长城证券", "东北证券", "中银证券", "国泰海通", "中信建投",
+    "平安证券", "浙商证券", "国盛证券", "华西证券", "东吴证券", "长江证券",
+    "财通证券", "安信证券", "银河证券", "方正证券", "中泰证券", "国金证券",
+    " Goldman Sachs", "Morgan Stanley", "JPMorgan", "UBS", "Deutsche Bank",
+    "Bank of America", "Citigroup", "Barclays", "HSBC",
+}
+
+
+def is_whitelisted_research_source(source: str) -> bool:
+    """检查研报来源是否在白名单中"""
+    if not source:
+        return False
+    source_lower = source.lower()
+    for valid in RESEARCH_SOURCE_WHITELIST:
+        if valid.lower() in source_lower:
+            return True
+    return False
+
+
+def search_duckduckgo(queries: List[str], max_results: int = 5, timelimit: str = "d") -> List[Dict]:
+    """使用 DuckDuckGo 搜索
+    timelimit: "d"=最近一天, "w"=最近一周, "m"=最近一月, None=不限
+    """
     all_results = []
+    seen_urls = set()
     with DDGS() as ddgs:
         for q in queries:
             try:
-                results = ddgs.text(q, max_results=max_results)
+                kwargs = {"max_results": max_results}
+                if timelimit:
+                    kwargs["timelimit"] = timelimit
+                results = ddgs.text(q, **kwargs)
                 for r in results:
+                    url = r.get("href", "")
+                    if url in seen_urls:
+                        continue
+                    seen_urls.add(url)
                     all_results.append({
                         "title": r.get("title", ""),
-                        "url": r.get("href", ""),
+                        "url": url,
                         "summary": r.get("body", "")[:400],
                     })
             except Exception as e:
@@ -146,29 +203,85 @@ def generate_daily_report(policy_results: List[Dict], news_results: List[Dict], 
             timeout=120
         )
         resp.raise_for_status()
-        
+
         content = resp.json()["choices"][0]["message"]["content"]
         print(f"[DEBUG] DeepSeek raw output length: {len(content)}")
         print(f"[DEBUG] DeepSeek raw output preview: {content[:200]}")
-        
+
         json_text = extract_json(content)
         data = json.loads(json_text)
         return data
     except Exception as e:
         print(f"[ERROR] DeepSeek API failed: {e}")
-        print("[WARN] Falling back to raw search results")
-        # Fallback: 将搜索结果直接按类别放入
+        print("[WARN] DeepSeek failed, returning empty report instead of raw garbage")
+        # Fallback: 返回空日报，不塞原始低质量结果
         return {
-            "policy": policy_results[:5],
-            "news": news_results[:8],
-            "research": research_results[:3],
-            "stats": {
-                "policy_count": len(policy_results[:5]),
-                "news_count": len(news_results[:8]),
-                "research_count": len(research_results[:3]),
-                "paywall_skipped": 0
-            }
+            "policy": [], "news": [], "research": [],
+            "stats": {"policy_count": 0, "news_count": 0, "research_count": 0, "paywall_skipped": 0}
         }
+
+
+def is_reasonable_date(date_str: str, target_date: str, max_days: int = 7) -> bool:
+    """检查日期是否在合理范围内"""
+    if not date_str:
+        return False
+    try:
+        from datetime import timedelta
+        item_date = datetime.strptime(date_str, "%Y-%m-%d")
+        target = datetime.strptime(target_date, "%Y-%m-%d")
+        delta = target - item_date
+        return timedelta(days=0) <= delta <= timedelta(days=max_days)
+    except Exception:
+        return False
+
+
+def validate_and_filter(data: Dict, target_date: str) -> Dict:
+    """后处理校验：过滤日期异常、来源不合格的条目"""
+    filtered = {"policy": [], "news": [], "research": []}
+    stats = {"policy_skipped": 0, "news_skipped": 0, "research_skipped": 0}
+
+    # 政策：最近7天（发布频率低）
+    for item in data.get("policy", []):
+        if is_reasonable_date(item.get("date"), target_date, max_days=7):
+            filtered["policy"].append(item)
+        else:
+            stats["policy_skipped"] += 1
+            print(f"[FILTER] Skip policy (bad date): {item.get('title', '')[:50]}")
+
+    # 新闻：最近2天（时效性要求最高）
+    for item in data.get("news", []):
+        if is_reasonable_date(item.get("date"), target_date, max_days=2):
+            filtered["news"].append(item)
+        else:
+            stats["news_skipped"] += 1
+            print(f"[FILTER] Skip news (bad date): {item.get('title', '')[:50]}")
+
+    # 研报：最近7天 + 来源白名单
+    for item in data.get("research", []):
+        date_ok = is_reasonable_date(item.get("date"), target_date, max_days=7)
+        source_ok = is_whitelisted_research_source(item.get("source", ""))
+        if date_ok and source_ok:
+            filtered["research"].append(item)
+        else:
+            stats["research_skipped"] += 1
+            reason = []
+            if not date_ok:
+                reason.append("bad_date")
+            if not source_ok:
+                reason.append("bad_source")
+            print(f"[FILTER] Skip research ({','.join(reason)}): {item.get('title', '')[:50]}")
+
+    print(f"[INFO] Validation: policy={len(filtered['policy'])}/{len(filtered['policy'])+stats['policy_skipped']}, "
+          f"news={len(filtered['news'])}/{len(filtered['news'])+stats['news_skipped']}, "
+          f"research={len(filtered['research'])}/{len(filtered['research'])+stats['research_skipped']}")
+
+    filtered["stats"] = {
+        "policy_count": len(filtered["policy"]),
+        "news_count": len(filtered["news"]),
+        "research_count": len(filtered["research"]),
+        "paywall_skipped": 0
+    }
+    return filtered
 
 
 def save_data(data: Dict, target_date: str):
@@ -189,15 +302,19 @@ def main():
         sys.exit(1)
     
     print(f"[INFO] Searching for {target_date}...")
-    
-    policy_results = search_duckduckgo(POLICY_QUERIES, max_results=5)
-    news_results = search_duckduckgo(NEWS_QUERIES, max_results=3)
-    research_results = search_duckduckgo(RESEARCH_QUERIES, max_results=5)
-    
+
+    # 搜索策略：
+    # - 政策：放宽到一周，政策发布频率低
+    # - 新闻：严格一天，确保时效性
+    # - 研报：放宽到一周，研报不是每天都有
+    policy_results = search_duckduckgo(POLICY_QUERIES, max_results=8, timelimit="w")
+    news_results = search_duckduckgo(NEWS_QUERIES, max_results=5, timelimit="d")
+    research_results = search_duckduckgo(RESEARCH_QUERIES, max_results=8, timelimit="w")
+
     print(f"[INFO] Policy: {len(policy_results)}, News: {len(news_results)}, Research: {len(research_results)}")
-    
+
     all_results = policy_results + news_results + research_results
-    
+
     if not all_results:
         print("[WARN] No search results, falling back to empty report")
         data = {
@@ -206,8 +323,10 @@ def main():
         }
     else:
         print(f"[INFO] Generating report with DeepSeek...")
-        data = generate_daily_report(policy_results, news_results, research_results, target_date, api_key)
-    
+        raw_data = generate_daily_report(policy_results, news_results, research_results, target_date, api_key)
+        print("[INFO] Validating and filtering results...")
+        data = validate_and_filter(raw_data, target_date)
+
     if "stats" not in data:
         data["stats"] = {
             "policy_count": len(data.get("policy", [])),
@@ -215,7 +334,7 @@ def main():
             "research_count": len(data.get("research", [])),
             "paywall_skipped": 0
         }
-    
+
     save_data(data, target_date)
     print(f"[INFO] Done: policy={data['stats']['policy_count']}, news={data['stats']['news_count']}, research={data['stats']['research_count']}")
 
