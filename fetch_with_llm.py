@@ -12,12 +12,16 @@ from typing import Dict, List
 import requests
 from duckduckgo_search import DDGS
 
-# 搜索关键词（覆盖政策、行业、研报）
-SEARCH_QUERIES = [
+# 搜索关键词
+POLICY_QUERIES = [
     "site:gov.cn 自动驾驶 智能网联汽车",
     "site:xinhuanet.com 人工智能 政策",
     "site:people.com.cn 自动驾驶 监管",
     "工信部 自动驾驶 智能网联汽车 政策",
+    "网信办 人工智能 规范 意见",
+]
+
+NEWS_QUERIES = [
     "Robotaxi 商业化 运营 最新",
     "特斯拉 FSD Robotaxi 最新进展",
     "英伟达 AI 投资 芯片 最新",
@@ -26,19 +30,33 @@ SEARCH_QUERIES = [
     "华为 智能驾驶 乾崑 最新",
     "字节跳动 AI 大模型 豆包 最新",
     "小马智行 文远知行 自动驾驶 最新",
-    "自动驾驶 研报 投资策略",
-    "智能驾驶 深度研究 券商",
+    "自动驾驶 L3 L4 量产 最新",
+]
+
+RESEARCH_QUERIES = [
+    "自动驾驶 研报 投资策略 2026",
+    "智能驾驶 深度研究 券商 2026",
+    "Robotaxi 研究报告 行业分析 2026",
+    "AI 大模型 行业报告 券商 2026",
+    "site:stcn.com 自动驾驶 研报",
+    "site:cs.com.cn 智能驾驶 研究",
+    "site:eastmoney.com 自动驾驶 研报",
 ]
 
 SYSTEM_PROMPT = """你是一位专业的 AI/自动驾驶行业日报编辑，服务于"跟进时事+积累素材"的双重目标。
 
-你的核心能力（Skill）：
+你收到三组搜索结果：
+1. 【政策素材】来自政府网站和官方媒体的搜索结果
+2. 【行业素材】来自科技/财经媒体的搜索结果
+3. 【研报素材】来自券商、研报平台的搜索结果（包含真实的研报标题和摘要）
 
-1. 【政策动向识别】从搜索结果中识别政府及监管部门发布的政策、法规、实施意见、管理办法。主体必须是政府部门或监管机构，有明确的政策条文。
+你的任务：
 
-2. 【行业资讯筛选】筛选与人工智能、自动驾驶、大模型、芯片相关的重大企业动态、技术突破、投融资事件、商业化进展。优先收录对百度战略有参考价值的内容（如萝卜快跑对标、文心大模型竞争格局）。
+1. 【政策动向】从政策素材中筛选最近48小时内发布的政府政策、法规、实施意见。每条必须主体为政府部门，有明确政策条文。如果没有近期政策，policy为空数组。
 
-3. 【研报撰写】基于当天所有新闻素材，撰写一份300字左右的每日行业研报摘要，包含核心观点、关键数据和投资/战略启示。标题固定为"每日行业研报摘要"。
+2. 【行业资讯】从行业素材中筛选与AI、自动驾驶、大模型、芯片相关的重大企业动态、技术突破、投融资、商业化进展。优先收录对百度战略有参考价值的内容。严格排除48小时以前的旧闻。
+
+3. 【研报】从研报素材中提取真正的券商研报内容。不要自己编造！必须从搜索结果中找到真实的研报标题、机构名称、核心观点。如果搜索结果中没有研报素材，可以基于当天行业素材写一份简评，但标题要注明"行业简评"而非"研报"。
 
 时效性铁律：严格只收录最近48小时内的内容。如果搜索结果中某条内容的发布时间明显早于这两天，坚决排除。
 
@@ -51,9 +69,9 @@ SYSTEM_PROMPT = """你是一位专业的 AI/自动驾驶行业日报编辑，服
   ],
   "news": [...],
   "research": [
-    {"title": "每日行业研报摘要", "summary": "基于当天新闻撰写的300字行业简评...", "source": "AI生成", "url": "#", "date": "YYYY-MM-DD", "country": "中国"}
+    {"title": "...", "summary": "...", "source": "...", "url": "...", "date": "YYYY-MM-DD", "country": "中国"}
   ],
-  "stats": {"policy_count": 0, "news_count": 0, "research_count": 1, "paywall_skipped": 0}
+  "stats": {"policy_count": 0, "news_count": 0, "research_count": 0, "paywall_skipped": 0}
 }
 
 today_date: {today_date}
@@ -78,12 +96,19 @@ def search_duckduckgo(queries: List[str], max_results: int = 5) -> List[Dict]:
     return all_results
 
 
-def generate_daily_report(raw_results: List[Dict], target_date: str, api_key: str) -> Dict:
+def generate_daily_report(policy_results: List[Dict], news_results: List[Dict], research_results: List[Dict], target_date: str, api_key: str) -> Dict:
     """调用 DeepSeek API 生成日报"""
     
+    def fmt_items(items, label):
+        lines = [f"=== {label} ==="]
+        for i, r in enumerate(items[:20], 1):
+            lines.append(f"[{i}] {r['title']}\nURL: {r['url']}\n摘要: {r['summary']}")
+        return "\n\n".join(lines)
+    
     material = "\n\n".join([
-        f"[{i+1}] {r['title']}\nURL: {r['url']}\n摘要: {r['summary']}"
-        for i, r in enumerate(raw_results[:35])
+        fmt_items(policy_results, "政策素材"),
+        fmt_items(news_results, "行业素材"),
+        fmt_items(research_results, "研报素材"),
     ])
     
     system = SYSTEM_PROMPT.replace("{today_date}", target_date)
@@ -135,10 +160,16 @@ def main():
         sys.exit(1)
     
     print(f"[INFO] Searching for {target_date}...")
-    results = search_duckduckgo(SEARCH_QUERIES)
-    print(f"[INFO] Got {len(results)} raw results from DuckDuckGo")
     
-    if not results:
+    policy_results = search_duckduckgo(POLICY_QUERIES, max_results=5)
+    news_results = search_duckduckgo(NEWS_QUERIES, max_results=3)
+    research_results = search_duckduckgo(RESEARCH_QUERIES, max_results=5)
+    
+    print(f"[INFO] Policy: {len(policy_results)}, News: {len(news_results)}, Research: {len(research_results)}")
+    
+    all_results = policy_results + news_results + research_results
+    
+    if not all_results:
         print("[WARN] No search results, falling back to empty report")
         data = {
             "policy": [], "news": [], "research": [],
@@ -146,7 +177,7 @@ def main():
         }
     else:
         print(f"[INFO] Generating report with DeepSeek...")
-        data = generate_daily_report(results, target_date, api_key)
+        data = generate_daily_report(policy_results, news_results, research_results, target_date, api_key)
     
     if "stats" not in data:
         data["stats"] = {
