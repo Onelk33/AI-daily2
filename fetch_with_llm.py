@@ -87,14 +87,14 @@ SYSTEM_PROMPT = """你是一位专业的 AI/自动驾驶行业日报编辑，服
 - 如果搜索结果中没有符合条件的真实研报，research返回空数组——禁止编造！禁止基于行业素材写"简评"冒充研报！
 
 ## 输出格式
-必须是标准 JSON，不要任何 markdown 代码块标记：
+必须是标准 JSON，不要任何 markdown 代码块标记。date 字段必须是 YYYY-MM-DD 格式（例如 2026-05-15）：
 {
   "policy": [
-    {"title": "...", "summary": "...", "source": "...", "url": "...", "date": "YYYY-MM-DD", "country": "中国/美国/国际"}
+    {"title": "...", "summary": "...", "source": "...", "url": "...", "date": "2026-05-15", "country": "中国/美国/国际"}
   ],
   "news": [...],
   "research": [
-    {"title": "...", "summary": "...", "source": "...", "url": "...", "date": "YYYY-MM-DD", "country": "中国/美国/国际"}
+    {"title": "...", "summary": "...", "source": "...", "url": "...", "date": "2026-05-15", "country": "中国/美国/国际"}
   ],
   "stats": {"policy_count": 0, "news_count": 0, "research_count": 0, "paywall_skipped": 0}
 }
@@ -206,7 +206,18 @@ def generate_daily_report(policy_results: List[Dict], news_results: List[Dict], 
 
         content = resp.json()["choices"][0]["message"]["content"]
         print(f"[DEBUG] DeepSeek raw output length: {len(content)}")
-        print(f"[DEBUG] DeepSeek raw output preview: {content[:200]}")
+        print(f"[DEBUG] DeepSeek raw output preview: {content[:500]}")
+
+        # 保存原始输出到日志文件，方便诊断
+        log_dir = Path("data/debug_logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / f"deepseek_{target_date}.txt"
+        try:
+            with open(log_file, "w", encoding="utf-8") as f:
+                f.write(content)
+            print(f"[DEBUG] DeepSeek raw output saved to {log_file}")
+        except Exception as e:
+            print(f"[WARN] Failed to save debug log: {e}")
 
         json_text = extract_json(content)
         data = json.loads(json_text)
@@ -221,17 +232,39 @@ def generate_daily_report(policy_results: List[Dict], news_results: List[Dict], 
         }
 
 
+def parse_date(date_str: str) -> datetime:
+    """尝试多种格式解析日期"""
+    formats = [
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%Y年%m月%d日",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y%m%d",
+        "%d-%m-%Y",
+        "%m/%d/%Y",
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str.strip(), fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"无法解析日期: {date_str}")
+
+
 def is_reasonable_date(date_str: str, target_date: str, max_days: int = 7) -> bool:
     """检查日期是否在合理范围内"""
     if not date_str:
         return False
     try:
         from datetime import timedelta
-        item_date = datetime.strptime(date_str, "%Y-%m-%d")
+        item_date = parse_date(date_str)
         target = datetime.strptime(target_date, "%Y-%m-%d")
         delta = target - item_date
         return timedelta(days=0) <= delta <= timedelta(days=max_days)
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] Date parse failed for '{date_str}': {e}")
         return False
 
 
@@ -246,15 +279,15 @@ def validate_and_filter(data: Dict, target_date: str) -> Dict:
             filtered["policy"].append(item)
         else:
             stats["policy_skipped"] += 1
-            print(f"[FILTER] Skip policy (bad date): {item.get('title', '')[:50]}")
+            print(f"[FILTER] Skip policy (bad date): {item.get('title', '')[:50]} date={item.get('date', 'N/A')}")
 
-    # 新闻：最近2天（时效性要求最高）
+    # 新闻：最近3天（时效性要求最高，但给DeepSeek日期解析留容错）
     for item in data.get("news", []):
-        if is_reasonable_date(item.get("date"), target_date, max_days=2):
+        if is_reasonable_date(item.get("date"), target_date, max_days=3):
             filtered["news"].append(item)
         else:
             stats["news_skipped"] += 1
-            print(f"[FILTER] Skip news (bad date): {item.get('title', '')[:50]}")
+            print(f"[FILTER] Skip news (bad date): {item.get('title', '')[:50]} date={item.get('date', 'N/A')}")
 
     # 研报：最近7天 + 来源白名单
     for item in data.get("research", []):
@@ -269,7 +302,7 @@ def validate_and_filter(data: Dict, target_date: str) -> Dict:
                 reason.append("bad_date")
             if not source_ok:
                 reason.append("bad_source")
-            print(f"[FILTER] Skip research ({','.join(reason)}): {item.get('title', '')[:50]}")
+            print(f"[FILTER] Skip research ({','.join(reason)}): {item.get('title', '')[:50]} date={item.get('date', 'N/A')} source={item.get('source', 'N/A')}")
 
     print(f"[INFO] Validation: policy={len(filtered['policy'])}/{len(filtered['policy'])+stats['policy_skipped']}, "
           f"news={len(filtered['news'])}/{len(filtered['news'])+stats['news_skipped']}, "
