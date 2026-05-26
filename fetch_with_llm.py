@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import requests
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 # 搜索关键词
 POLICY_QUERIES = [
@@ -47,11 +47,12 @@ RESEARCH_QUERIES = [
 
 SYSTEM_PROMPT = """你是一位专业的 AI/自动驾驶行业日报编辑，服务于"跟进时事+积累素材"的双重目标。今天是 {today_date}。
 
-你收到三组搜索结果。你的任务是严格筛选，只保留真正的高质量内容。
+你收到三组搜索结果。你的任务是筛选出高质量、时效性强的内容。
 
-## 时效性铁律（最高优先级）
-- 今天（{today_date}）或昨天发布的内容才能收录
-- 如果搜索结果的标题或摘要中显示的日期早于昨天，坚决排除
+## 时效性要求（重要但不绝对）
+- 优先收录最近 3-5 天内发布的内容
+- 如果搜索结果中明确显示日期在最近7天内，可以收录
+- 对于特别重要的政策或重大行业事件，即使稍早（2周内）也可以收录
 - 如果没有明确日期信息，但内容明显是旧闻（如"2025年底""去年""此前已公布"），坚决排除
 - 企业官网的静态介绍页、产品页、招聘页，一律排除——这些不是新闻
 
@@ -69,7 +70,7 @@ SYSTEM_PROMPT = """你是一位专业的 AI/自动驾驶行业日报编辑，服
 - 发布主体为国务院、部委、地方政府等政府机构
 - 有明确的政策名称或文件编号
 - 有实质内容（不能是"关注""将出台"这类模糊表述）
-- 最近2天内发布
+- 最近2周内发布
 如果没有符合条件的政策，policy返回空数组。
 
 ## 任务2：行业资讯
@@ -78,12 +79,13 @@ SYSTEM_PROMPT = """你是一位专业的 AI/自动驾驶行业日报编辑，服
 - 对百度有直接或间接的战略参考价值
 - 优先收录：产品发布、技术突破、商业合作、投融资、政策影响、市场数据
 - 坚决排除：预测性文章、行业综述、观点评论（无新事件）
+- 最近7天内发布
 
 ## 任务3：每日研报
 从研报素材中提取真正的券商/研究机构研报。每条必须：
 - 来源为真实金融机构：中信证券、中金公司、国泰君安、海通证券、华泰证券、招商证券、申万宏源、广发证券、东方证券、光大证券、天风证券、兴业证券、国信证券、长城证券、东北证券、中银证券、国泰海通等
 - 有明确的研报标题和核心观点摘要
-- 最近一周内发布
+- 最近2周内发布
 - 如果搜索结果中没有符合条件的真实研报，research返回空数组——禁止编造！禁止基于行业素材写"简评"冒充研报！
 
 ## 输出格式
@@ -99,7 +101,7 @@ SYSTEM_PROMPT = """你是一位专业的 AI/自动驾驶行业日报编辑，服
   "stats": {"policy_count": 0, "news_count": 0, "research_count": 0, "paywall_skipped": 0}
 }
 
-重要：宁可少而精，不要多而滥。质量差的素材不如空着。"""
+重要：宁可少而精，不要多而滥。但如果素材质量不错且日期在合理范围内，请尽量收录，不要过度过滤导致空日报。"""
 
 
 # 研报来源白名单
@@ -125,32 +127,53 @@ def is_whitelisted_research_source(source: str) -> bool:
     return False
 
 
-def search_duckduckgo(queries: List[str], max_results: int = 5, timelimit: str = "d") -> List[Dict]:
-    """使用 DuckDuckGo 搜索
+import time
+
+def search_duckduckgo(queries: List[str], max_results: int = 5, timelimit: str = "d", retries: int = 3) -> List[Dict]:
+    """使用 DuckDuckGo 搜索，带重试和退避
     timelimit: "d"=最近一天, "w"=最近一周, "m"=最近一月, None=不限
     """
     all_results = []
     seen_urls = set()
     with DDGS() as ddgs:
         for q in queries:
-            try:
-                kwargs = {"max_results": max_results}
-                if timelimit:
-                    kwargs["timelimit"] = timelimit
-                results = ddgs.text(q, **kwargs)
-                for r in results:
-                    url = r.get("href", "")
-                    if url in seen_urls:
-                        continue
-                    seen_urls.add(url)
-                    all_results.append({
-                        "title": r.get("title", ""),
-                        "url": url,
-                        "summary": r.get("body", "")[:400],
-                    })
-            except Exception as e:
-                print(f"[WARN] DDG search failed for '{q}': {e}")
+            for attempt in range(retries):
+                try:
+                    kwargs = {"max_results": max_results}
+                    if timelimit:
+                        kwargs["timelimit"] = timelimit
+                    results = ddgs.text(q, **kwargs)
+                    count = 0
+                    for r in results:
+                        url = r.get("href", "")
+                        if url in seen_urls:
+                            continue
+                        seen_urls.add(url)
+                        all_results.append({
+                            "title": r.get("title", ""),
+                            "url": url,
+                            "summary": r.get("body", "")[:400],
+                        })
+                        count += 1
+                    if count > 0:
+                        print(f"[OK] DDG '{q}' ({timelimit}): {count} results")
+                    break  # 成功，跳出重试
+                except Exception as e:
+                    print(f"[WARN] DDG search failed for '{q}' (attempt {attempt+1}/{retries}): {e}")
+                    if attempt < retries - 1:
+                        time.sleep(2 ** attempt)  # 1s, 2s, 4s
+                    else:
+                        print(f"[ERROR] DDG '{q}' all retries exhausted")
     return all_results
+
+
+def search_with_fallback(queries: List[str], max_results: int = 5, timelimit: str = "d") -> List[Dict]:
+    """先尝试带时间限制的搜索，如果为空则尝试不带时间限制"""
+    results = search_duckduckgo(queries, max_results=max_results, timelimit=timelimit)
+    if not results:
+        print(f"[FALLBACK] No results with timelimit='{timelimit}', trying without timelimit...")
+        results = search_duckduckgo(queries, max_results=max_results, timelimit=None)
+    return results
 
 
 def extract_json(text: str) -> str:
@@ -254,7 +277,7 @@ def parse_date(date_str: str) -> datetime:
 
 
 def is_reasonable_date(date_str: str, target_date: str, max_days: int = 7) -> bool:
-    """检查日期是否在合理范围内"""
+    """检查日期是否在合理范围内（允许1天未来容错）"""
     if not date_str:
         return False
     try:
@@ -262,7 +285,8 @@ def is_reasonable_date(date_str: str, target_date: str, max_days: int = 7) -> bo
         item_date = parse_date(date_str)
         target = datetime.strptime(target_date, "%Y-%m-%d")
         delta = target - item_date
-        return timedelta(days=0) <= delta <= timedelta(days=max_days)
+        # 允许日期在未来1天内（时区/解析误差容错）
+        return timedelta(days=-1) <= delta <= timedelta(days=max_days)
     except Exception as e:
         print(f"[WARN] Date parse failed for '{date_str}': {e}")
         return False
@@ -273,25 +297,25 @@ def validate_and_filter(data: Dict, target_date: str) -> Dict:
     filtered = {"policy": [], "news": [], "research": []}
     stats = {"policy_skipped": 0, "news_skipped": 0, "research_skipped": 0}
 
-    # 政策：最近7天（发布频率低）
+    # 政策：最近14天（发布频率低，放宽）
     for item in data.get("policy", []):
-        if is_reasonable_date(item.get("date"), target_date, max_days=7):
+        if is_reasonable_date(item.get("date"), target_date, max_days=14):
             filtered["policy"].append(item)
         else:
             stats["policy_skipped"] += 1
             print(f"[FILTER] Skip policy (bad date): {item.get('title', '')[:50]} date={item.get('date', 'N/A')}")
 
-    # 新闻：最近3天（时效性要求最高，但给DeepSeek日期解析留容错）
+    # 新闻：最近7天（时效性要求较高，但放宽到7天给DeepSeek容错）
     for item in data.get("news", []):
-        if is_reasonable_date(item.get("date"), target_date, max_days=3):
+        if is_reasonable_date(item.get("date"), target_date, max_days=7):
             filtered["news"].append(item)
         else:
             stats["news_skipped"] += 1
             print(f"[FILTER] Skip news (bad date): {item.get('title', '')[:50]} date={item.get('date', 'N/A')}")
 
-    # 研报：最近7天 + 来源白名单
+    # 研报：最近14天 + 来源白名单（研报发布频率低）
     for item in data.get("research", []):
-        date_ok = is_reasonable_date(item.get("date"), target_date, max_days=7)
+        date_ok = is_reasonable_date(item.get("date"), target_date, max_days=14)
         source_ok = is_whitelisted_research_source(item.get("source", ""))
         if date_ok and source_ok:
             filtered["research"].append(item)
@@ -338,13 +362,13 @@ def main():
 
     # 搜索策略：
     # - 政策：放宽到一周，政策发布频率低
-    # - 新闻：严格一天，确保时效性
+    # - 新闻：严格一天，确保时效性（fallback到不限时间）
     # - 研报：放宽到一周，研报不是每天都有
-    policy_results = search_duckduckgo(POLICY_QUERIES, max_results=8, timelimit="w")
-    news_results = search_duckduckgo(NEWS_QUERIES, max_results=5, timelimit="d")
-    research_results = search_duckduckgo(RESEARCH_QUERIES, max_results=8, timelimit="w")
+    policy_results = search_with_fallback(POLICY_QUERIES, max_results=8, timelimit="w")
+    news_results = search_with_fallback(NEWS_QUERIES, max_results=5, timelimit="d")
+    research_results = search_with_fallback(RESEARCH_QUERIES, max_results=8, timelimit="w")
 
-    print(f"[INFO] Policy: {len(policy_results)}, News: {len(news_results)}, Research: {len(research_results)}")
+    print(f"[INFO] Raw results - Policy: {len(policy_results)}, News: {len(news_results)}, Research: {len(research_results)}")
 
     all_results = policy_results + news_results + research_results
 

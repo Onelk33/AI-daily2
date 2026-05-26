@@ -38,6 +38,14 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       - name: 构建静态网站
         run: python build_site.py
+      - name: 上传诊断日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-logs
+          path: |
+            data/debug_logs/
+            data/site_data/
       - name: 部署到 GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
