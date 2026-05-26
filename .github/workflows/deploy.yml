@@ -32,8 +32,12 @@ jobs:
           fi
           echo "Existing daily pages:"
           ls -la docs/daily/ 2>/dev/null || echo "none"
-      - name: DuckDuckGo 搜索 + DeepSeek 生成日报
-        run: python fetch_with_llm.py
+      - name: 生成昨天的日报
+        run: python fetch_with_llm.py $(date -d 'yesterday' +%Y-%m-%d)
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      - name: 生成今天的日报
+        run: python fetch_with_llm.py $(date +%Y-%m-%d)
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       - name: 构建静态网站

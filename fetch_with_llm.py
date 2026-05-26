@@ -277,7 +277,7 @@ def parse_date(date_str: str) -> datetime:
 
 
 def is_reasonable_date(date_str: str, target_date: str, max_days: int = 7) -> bool:
-    """检查日期是否在合理范围内（允许1天未来容错）"""
+    """检查日期是否在合理范围内（精确按天归档，不包含未来日期）"""
     if not date_str:
         return False
     try:
@@ -285,8 +285,9 @@ def is_reasonable_date(date_str: str, target_date: str, max_days: int = 7) -> bo
         item_date = parse_date(date_str)
         target = datetime.strptime(target_date, "%Y-%m-%d")
         delta = target - item_date
-        # 允许日期在未来1天内（时区/解析误差容错）
-        return timedelta(days=-1) <= delta <= timedelta(days=max_days)
+        # 只保留 target_date 当天及之前 max_days 天内的内容
+        # 不包含未来日期，确保按天精确归档
+        return timedelta(days=0) <= delta <= timedelta(days=max_days)
     except Exception as e:
         print(f"[WARN] Date parse failed for '{date_str}': {e}")
         return False
